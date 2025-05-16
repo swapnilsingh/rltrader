@@ -11,6 +11,7 @@ class Wallet:
         self.equity_curve = []
         self.max_equity = starting_balance
         self.min_equity = starting_balance
+        self.equity_peak = starting_balance  # ✅ NEW: Peak equity tracker
 
     def buy(self, price: float, quantity: float):
         cost = price * quantity
@@ -47,9 +48,27 @@ class Wallet:
         return 0.0
 
     def compute_equity(self, current_price: float) -> float:
-        return self.balance + self.inventory * current_price
+        equity = self.balance + self.inventory * current_price
+
+        # ✅ Update peak equity and min equity
+        self.equity_peak = max(self.equity_peak, equity)
+        self.max_equity = max(self.max_equity, equity)
+        self.min_equity = min(self.min_equity, equity)
+
+        # ✅ Log equity for visualization
+        self.equity_curve.append({
+            "timestamp": datetime.utcnow().isoformat(),
+            "equity": equity,
+            "balance": self.balance,
+            "inventory": self.inventory,
+        })
+
+        return equity
 
     def get_state_dict(self, current_price: float):
+        equity = self.compute_equity(current_price)
+        drawdown_pct = (self.equity_peak - equity) / self.equity_peak if self.equity_peak > 0 else 0.0
+
         return {
             "balance": self.balance,
             "inventory": self.inventory,
@@ -57,12 +76,13 @@ class Wallet:
             "realized_pnl": self.realized_pnl,
             "unrealized_pnl": self.compute_unrealized_pnl(current_price),
             "has_position": int(self.has_position()),
-            "equity": self.compute_equity(current_price),
+            "equity": equity,
+            "drawdown_pct": drawdown_pct  # ✅ Include in state
         }
 
     def get_performance_metrics(self, current_price: float):
         equity = self.compute_equity(current_price)
-        drawdown_pct = (self.max_equity - equity) / self.max_equity if self.max_equity > 0 else 0.0
+        drawdown_pct = (self.equity_peak - equity) / self.equity_peak if self.equity_peak > 0 else 0.0
         win_trades = [t for t in self.trade_history if t["action"] == "SELL" and t.get("pnl", 0.0) > 0]
         sell_trades = [t for t in self.trade_history if t["action"] == "SELL"]
         win_rate = len(win_trades) / len(sell_trades) if sell_trades else 0.0
@@ -75,8 +95,9 @@ class Wallet:
             "win_rate": win_rate,
             "avg_trade_pnl": avg_pnl,
             "equity": equity,
-            "max_equity": max(self.max_equity, equity),
-            "min_equity": min(self.min_equity, equity),
+            "max_equity": self.max_equity,
+            "min_equity": self.min_equity,
+            "equity_peak": self.equity_peak,
             "trade_count": len(self.trade_history)
         }
 
@@ -92,9 +113,4 @@ class Wallet:
         self.trade_history.append(trade)
         
     def get_available_equity(self) -> float:
-        """
-        Returns the amount of cash that can be used for new trades.
-        For now, this is just available balance (no margin or reserve logic).
-        """
         return self.balance
-

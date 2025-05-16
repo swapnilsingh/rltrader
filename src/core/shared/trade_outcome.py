@@ -6,7 +6,7 @@ class TradeOutcome:
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     holding_time: float = 0.0
-    drawdown_pct: float = 0.0
+    drawdown_pct: float = 0.0  # ✅ Confirmed as percentage
     entry_price: float = 0.0
     exit_price: float = 0.0
     quantity: float = 0.0
@@ -35,7 +35,7 @@ class TradeOutcome:
             holding_time = current_wallet.get("holding_time", 0.0)
             quantity = current_wallet.get("inventory", 0.0)
 
-            # New volatility-related metrics
+            # Market dynamics
             slippage_pct = abs(price - entry_price) / price if price > 0 else 0.0
             volatility_pct = abs(equity - prev_equity) / prev_equity if prev_equity > 0 else 0.0
             spread_volatility = current_wallet.get("spread_volatility", 0.0)
