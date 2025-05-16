@@ -1,0 +1,10 @@
+actions: [BUY, SELL, HOLD]
+quantity_buckets: [0.1, 0.25, 0.5, 1.0]
+
+loss_weights:
+  signal_logits: 1.0
+  quantity: 0.5
+  reward_weights: 0.4
+  reason_weights: 0.2
+  expected_holding_time: 0.3
+  signal_stability_score: 0.2

@@ -1,0 +1,94 @@
+model_name: dynamic_qnetwork
+model_version: v1.0.0
+strategy_id: scalping_core
+
+feature_order:
+  - adx_scaled
+  - atr_pct
+  - band_position
+  - drawdown_pct
+  - entry_price_diff_pct
+  - has_position
+  - ind_rsi
+  - ind_macd
+  - inventory_ratio
+  - momentum_pct
+  - normalized_cash
+  - rsi_scaled
+  - reward_profit
+  - reward_risk
+  - unrealized_pnl_pct
+  - tick_arrival_gap
+  - tick_price_change
+  - bid_ask_spread_pct
+  - hour_sin
+  - hour_cos
+  - day_of_week_sin
+  - day_of_week_cos
+  - regime_volatility_level
+  - slippage_pct
+  - volatility_pct
+  - spread_volatility
+  - orderbook_imbalance
+
+output_heads:
+  signal_logits:
+    type: classification
+    activation: softmax
+    shape: [3]
+  confidence:
+    type: regression
+    activation: sigmoid
+    shape: [1]
+  quantity:
+    type: classification
+    activation: softmax
+    shape: [4]
+  reward_weights:
+    type: attention
+    activation: softmax
+    shape: [8]  # 🔼 Updated to match new weighted components
+  reason_weights:
+    type: attribution
+    activation: tanh
+    shape_from: input_dim
+  execution_mode:
+    type: classification
+    activation: softmax
+    shape: [3]
+  cooldown_timer:
+    type: regression
+    activation: relu
+    shape: [1]
+  stop_loss_pct:
+    type: regression
+    activation: sigmoid
+    shape: [1]
+  take_profit_pct:
+    type: regression
+    activation: sigmoid
+    shape: [1]
+  expected_holding_time:
+    type: regression
+    activation: relu
+    shape: [1]
+  signal_stability_score:
+    type: regression
+    activation: sigmoid
+    shape: [1]
+
+architecture:
+  profiles:
+    jetson_train:
+      hidden_layers: [32, 32]
+      activation: relu
+      dropout: 0.05
+    balanced:
+      hidden_layers: [64, 64]
+      activation: relu
+      dropout: 0.1
+    cloud_train:
+      hidden_layers: [128, 64, 32]
+      activation: relu
+      dropout: 0.2
+  selected_profile: balanced

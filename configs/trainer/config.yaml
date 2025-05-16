@@ -1,0 +1,57 @@
+default:
+  redis:
+    host: redis
+    port: 6379
+    experience_key: experience_queue
+  symbol: BTCUSDT
+  interval: 5s
+  exchange: binance
+  log_level: INFO
+  model_dir: /app/models
+  model_config_path: configs/trainer/model_config.yaml
+  model_profile: balanced
+  lr: 0.001
+  batch_size: 32
+  gamma: 0.99
+  bootstrap_candles: 100
+  epsilon_start: 1.0
+  epsilon_min: 0.05
+  epsilon_decay: 0.995
+  target_sync_every: 100
+  action_index_map:
+    SELL: 0
+    HOLD: 1
+    BUY: 2
+  action_value_map:
+    SELL: -1
+    HOLD: 0
+    BUY: 1
+  loss_fn: mse
+  train_interval: 5
+  buffer_strategy: dynamic
+  buffer_size: 1000
+  stale_experience_threshold: 30
+dry:
+  model_dir: ./models
+  symbol: BTCUSDT
+  gamma: 0.99
+  batch_size: 32
+  lr: 0.001
+  bootstrap_candles: 100
+  action_index_map:
+    SELL: 0
+    HOLD: 1
+    BUY: 2
+  action_value_map:
+    SELL: -1
+    HOLD: 0
+    BUY: 1
+  model_profile: balanced
+  model_config_path: configs/model_config.yaml
+live:
+  redis:
+    host: redis
+    port: 6379
+    experience_key: experience_queue
+  model_config_path: configs/model_config.yaml
+  model_profile: balanced

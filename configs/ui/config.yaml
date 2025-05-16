@@ -1,0 +1,31 @@
+local:
+  redis:
+    host: "localhost"
+    port: 6379
+
+  symbol: "btcusdt"
+
+  redis_queues:
+    equity_curve: "equity:{symbol}"
+    agent_signals: "signal:{symbol}"
+    trade_history: "trade_log:{symbol}"
+    vote_breakdown: "signal:{symbol}"
+    pnl_distribution: "trade_log:{symbol}"
+    reward_weights: "reward_metrics:{symbol}"
+    live_decision_params: "signal:{symbol}"
+
+prod:
+  redis:
+    host: "redis"
+    port: 6379
+
+  symbol: "btcusdt"
+
+  redis_queues:
+    equity_curve: "equity:{symbol}"
+    agent_signals: "signal:{symbol}"
+    trade_history: "trade_log:{symbol}"
+    vote_breakdown: "signal:{symbol}"
+    pnl_distribution: "trade_log:{symbol}"
+    reward_weights: "reward_metrics:{symbol}"
+    live_decision_params: "signal:{symbol}"

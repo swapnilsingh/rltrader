@@ -1,0 +1,9 @@
+torch
+numpy
+pandas
+pyyaml
+ta
+redis
+scikit-learn
+loguru
+requests

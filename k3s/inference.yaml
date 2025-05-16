@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference
+  namespace: rltrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inference
+  template:
+    metadata:
+      labels:
+        app: inference
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: rltrader-role
+                    operator: In
+                    values: [inference]
+      containers:
+        - name: inference
+          image: 192.168.1.200:30000/rl-trader-inference:latest
+          command: ["python", "-m", "inference.runner"] 
+          args: ["--env=live"]
+          ports:
+            - containerPort: 8000
+          volumeMounts:
+            - name: model-storage
+              mountPath: /app/models/
+      volumes:
+        - name: model-storage
+          hostPath:
+            path: /mnt/ai-nas/
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference
+  namespace: rltrader
+spec:
+  type: NodePort
+  selector:
+    app: inference
+  ports:
+    - port: 8000
+      targetPort: 8000

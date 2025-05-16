@@ -1,0 +1,8 @@
+torch
+numpy<1.24
+pandas
+pyyaml
+pandas_ta
+redis
+websockets
+loguru

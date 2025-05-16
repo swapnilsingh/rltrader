@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.csv
+*.pt
+.env
+venv/
+build/
+dist/
+.ipynb_checkpoints/
+pytest_cache/
+htmlcov/
+inference_log.csv
+coverage.xml

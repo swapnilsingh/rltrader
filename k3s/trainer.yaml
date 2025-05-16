@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trainer
+  namespace: rltrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trainer
+  template:
+    metadata:
+      labels:
+        app: trainer
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: rltrader-role
+                    operator: In
+                    values: [trainer]
+      containers:
+        - name: trainer
+          image: 192.168.1.200:30000/rl-trader-trainer:latest
+          command: ["python", "-m", "trainer.runner"] 
+          args: ["--mode=live"]
+          ports:
+            - containerPort: 8001
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          volumeMounts:
+            - name: model-storage
+              mountPath: /app/models/
+      volumes:
+        - name: model-storage
+          hostPath:
+            path: /mnt/ai-nas/
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trainer
+  namespace: rltrader
+spec:
+  type: ClusterIP
+  selector:
+    app: trainer
+  ports:
+    - port: 8001
+      targetPort: 8001

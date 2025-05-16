@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: rltrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: rltrader-role
+                    operator: In
+                    values: [ui]
+      containers:
+        - name: ui
+          image: 192.168.1.200:30000/rl-trader-ui:latest
+          ports:
+            - containerPort: 8501
+          env:
+            - name: APP_ENV
+              value: "prod"  # or "local" if running locally
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: rltrader
+spec:
+  type: NodePort
+  selector:
+    app: ui
+  ports:
+    - port: 8501
+      targetPort: 8501
+      nodePort: 30501

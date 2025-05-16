@@ -1,0 +1,61 @@
+live:
+  symbol: btcusdt
+  device: cpu
+  starting_balance: 500
+  model:
+    path: /app/models/model.pt
+  redis:
+    host: redis
+    port: 6379
+    db: 0
+  reward_weights:
+    pnl: 1.0
+    hold: 0.3
+    drawdown: -0.5
+    confidence: 0.2
+    stability: -0.2
+    volatility: 0.1
+    spread_volatility: -0.1
+    slippage: -0.15
+    orderbook_imbalance: 0.05
+  experience_writer:
+    model_version: v1
+    max_length: 1000
+    keys:
+      experience: "experience_queue"
+      trade_log: "trade_log"
+  reward:
+    failed_trade_penalty: -2.0
+    timeout_penalty: -0.4
+    reversal_bonus: 0.4
+
+local:
+  symbol: btcusdt
+  device: cpu
+  starting_balance: 1000
+  model:
+    path: /mnt/models/model.pt
+  redis:
+    host: localhost
+    port: 6379
+    db: 0
+  reward_weights:
+    pnl: 1.0
+    hold: 0.5
+    drawdown: -0.3
+    confidence: 0.2
+    stability: -0.2
+    volatility: 0.1
+    spread_volatility: -0.1
+    slippage: -0.15
+    orderbook_imbalance: 0.05
+  experience_writer:
+    model_version: v1
+    max_length: 1000
+    keys:
+      experience: "experience_queue"
+      trade_log: "trade_log"
+  reward:
+    failed_trade_penalty: -2.0
+    timeout_penalty: -0.4
+    reversal_bonus: 0.4
