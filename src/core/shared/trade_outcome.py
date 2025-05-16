@@ -6,7 +6,7 @@ class TradeOutcome:
     realized_pnl: float = 0.0
     unrealized_pnl: float = 0.0
     holding_time: float = 0.0
-    drawdown_pct: float = 0.0  # ✅ Confirmed as percentage
+    drawdown_pct: float = 0.0
     entry_price: float = 0.0
     exit_price: float = 0.0
     quantity: float = 0.0
@@ -16,6 +16,8 @@ class TradeOutcome:
     volatility_pct: float = 0.0
     spread_volatility: float = 0.0
     orderbook_imbalance: float = 0.0
+    equity_peak: float = 0.0                    # ✅ NEW: current peak
+    prev_equity_peak: float = 0.0               # ✅ NEW: last peak
     reason: str = ""
     was_executed: bool = True
 
@@ -41,6 +43,10 @@ class TradeOutcome:
             spread_volatility = current_wallet.get("spread_volatility", 0.0)
             orderbook_imbalance = current_wallet.get("orderbook_imbalance", 0.0)
 
+            # ✅ New: equity peak tracking
+            equity_peak = current_wallet.get("equity_peak", equity)
+            prev_equity_peak = prev_wallet.get("equity_peak", prev_equity)
+
             return cls(
                 realized_pnl_pct=realized_pnl_pct,
                 realized_pnl=realized_pnl,
@@ -56,6 +62,8 @@ class TradeOutcome:
                 volatility_pct=volatility_pct,
                 spread_volatility=spread_volatility,
                 orderbook_imbalance=orderbook_imbalance,
+                equity_peak=equity_peak,
+                prev_equity_peak=prev_equity_peak,
                 was_executed=executed
             )
 
@@ -75,6 +83,8 @@ class TradeOutcome:
                 volatility_pct=0.0,
                 spread_volatility=0.0,
                 orderbook_imbalance=0.0,
+                equity_peak=0.0,
+                prev_equity_peak=0.0,
                 was_executed=False,
                 reason=f"from_wallets_error: {e}"
             )

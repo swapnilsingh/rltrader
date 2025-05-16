@@ -12,10 +12,13 @@ class RewardAgent:
 
         # Drawdown control
         self.dynamic_drawdown_enabled = True
-        self.drawdown_threshold = self.config.get("drawdown_threshold", 0.05)         # 5%
+        self.drawdown_threshold = self.config.get("drawdown_threshold", 0.05)
         self.low_drawdown_penalty = self.weights.get("drawdown_pct", -0.3)
-        self.high_drawdown_penalty = self.config.get("high_drawdown_penalty", -1.5)   # heavier penalty
-        self.drawdown_execution_limit = self.config.get("drawdown_limit", 0.10)       # block execution >10%
+        self.high_drawdown_penalty = self.config.get("high_drawdown_penalty", -1.5)
+        self.drawdown_execution_limit = self.config.get("drawdown_limit", 0.10)
+
+        # Equity peak breakout reward
+        self.equity_breakout_bonus = self.config.get("equity_breakout_bonus", 2.0)
 
     def compute_reward(self, trade_outcome, model_output):
         action = getattr(trade_outcome, "action", "HOLD")
@@ -32,6 +35,8 @@ class RewardAgent:
         # ✅ Safe values from trade outcome
         pnl = safe_float(getattr(trade_outcome, "realized_pnl", 0.0))
         hold_reward = safe_float(getattr(trade_outcome, "unrealized_pnl", 0.0))
+        equity_peak = safe_float(getattr(trade_outcome, "equity_peak", 0.0))
+        prev_equity_peak = safe_float(getattr(trade_outcome, "prev_equity_peak", 0.0))
 
         # ✅ Safe values from model output
         confidence = safe_float(model_output.get("confidence", 0.0))
@@ -43,16 +48,16 @@ class RewardAgent:
         exit_reason = model_output.get("exit_reason", "inference")
 
         # 🎯 Dynamic drawdown penalty scaling
-        if drawdown_pct >= self.drawdown_threshold:
-            drawdown_penalty = self.high_drawdown_penalty
-        else:
-            drawdown_penalty = self.low_drawdown_penalty
+        drawdown_penalty = (
+            self.high_drawdown_penalty if drawdown_pct >= self.drawdown_threshold
+            else self.low_drawdown_penalty
+        )
 
         # 🎯 Weighted Reward
         reward = (
             self.weights.get("pnl", 1.0) * pnl +
             self.weights.get("hold", 0.5) * hold_reward +
-            drawdown_penalty * drawdown_pct +  # ✅ dynamic penalty
+            drawdown_penalty * drawdown_pct +
             self.weights.get("confidence", 0.2) * confidence +
             self.weights.get("stability", -0.2) * stability +
             self.weights.get("volatility", 0.1) * volatility_pct +
@@ -61,13 +66,19 @@ class RewardAgent:
             self.weights.get("orderbook_imbalance", 0.05) * orderbook_imbalance
         )
 
-        # Exit condition modifiers
+        # 🎉 Bonus for breaking equity peak
+        breakout_bonus = 0.0
+        if equity_peak > prev_equity_peak:
+            breakout_bonus = self.equity_breakout_bonus
+            reward += breakout_bonus
+
+        # 🕒 Exit condition modifiers
         if exit_reason == "TIMEOUT":
             reward += self.timeout_penalty
         elif exit_reason == "REVERSE_EXIT":
             reward += self.reversal_bonus
 
-        # Reward breakdown for analysis
+        # Breakdown
         breakdown = {
             "pnl_component": pnl,
             "hold_component": hold_reward,
@@ -79,6 +90,7 @@ class RewardAgent:
             "spread_volatility_component": spread_volatility,
             "slippage_component": slippage_pct,
             "orderbook_imbalance_component": orderbook_imbalance,
+            "equity_breakout_bonus": breakout_bonus,
             "exit_reason": exit_reason,
         }
 
