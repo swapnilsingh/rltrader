@@ -28,6 +28,17 @@ spec:
           args: ["--env=live"]
           ports:
             - containerPort: 8000
+          env:
+            - name: APP_LOG_LEVEL
+              value: "INFO"  # Global fallback level
+            - name: LOG_LEVEL_EXPERIENCEWRITER
+              value: "DEBUG"  # Module-specific level
+            - name: LOG_LEVEL_TICKFEATUREBUILDER
+              value: "WARNING"
+            - name: LOG_LEVEL_INFERENCEAGENT
+              value: "INFO"
+            - name: LOG_LEVEL_ROLLINGTICKBUFFER
+              value: "INFO"
           volumeMounts:
             - name: model-storage
               mountPath: /app/models/
@@ -36,6 +47,7 @@ spec:
           hostPath:
             path: /mnt/ai-nas/
             type: Directory
+
 ---
 apiVersion: v1
 kind: Service

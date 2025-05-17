@@ -2,8 +2,11 @@
 
 from functools import wraps
 from loguru import logger as loguru_logger
-
+import os
+import sys
 from core.utils.config_loader import load_config
+
+_loguru_sink_initialized = False
 
 def inject_logger(name_attr="logger_name", level_attr="log_level"):
     def decorator(cls):
@@ -11,18 +14,24 @@ def inject_logger(name_attr="logger_name", level_attr="log_level"):
 
         @wraps(orig_init)
         def wrapped(self, *args, **kwargs):
-            # Determine logger name and level from class attributes or defaults
+            global _loguru_sink_initialized
+
+            # Use class name as default logger name
             logger_name = getattr(self, name_attr, cls.__name__)
-            log_level = getattr(cls, level_attr, "INFO").upper()
+            env_key = f"LOG_LEVEL_{logger_name.upper()}"
+            log_level = os.getenv(env_key, getattr(cls, level_attr, os.getenv("APP_LOG_LEVEL", "INFO"))).upper()
 
-            # Bind a contextual Loguru logger
+            # Setup Loguru sink once with global config
+            if not _loguru_sink_initialized:
+                loguru_logger.remove()  # remove default sink
+                loguru_logger.add(sys.stderr, level=os.getenv("APP_LOG_LEVEL", "INFO").upper())
+                _loguru_sink_initialized = True
+
+            # Bind logger with class-specific source name
             bound_logger = loguru_logger.bind(source=logger_name)
+            bound_logger.level(log_level)  # tag level for introspection (optional)
+
             self.logger = bound_logger
-
-            # Optionally set level (globally, if needed)
-            # loguru_logger.remove()
-            # loguru_logger.add(sys.stderr, level=log_level)
-
             orig_init(self, *args, **kwargs)
 
         cls.__init__ = wrapped

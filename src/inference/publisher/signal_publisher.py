@@ -10,10 +10,13 @@ class SignalPublisher:
         self.redis_conn = redis_conn
         self.symbol = symbol.lower()
         self.max_len = max_len
-        self.key = f"signals:{self.symbol}"
+
+        # Regular keys
+        self.signal_key = f"signals:{self.symbol}"
+        self.ui_signal_key = f"ui:signals:{self.symbol}"
+        self.ui_signal_latest_key = f"ui:latest_signal:{self.symbol}"
 
     def _sanitize(self, value):
-        """Recursively convert values to JSON-serializable types."""
         if isinstance(value, dict):
             return {k: self._sanitize(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
@@ -37,14 +40,32 @@ class SignalPublisher:
         if extra:
             payload.update(self._sanitize(extra))
 
-        self.redis_conn.lpush(self.key, json.dumps(payload))
-        self.redis_conn.ltrim(self.key, 0, self.max_len - 1)
-        self.logger.info(f"📤 Published signal: {payload}")
+        # Push to primary queue
+        self.redis_conn.lpush(self.signal_key, json.dumps(payload))
+        self.redis_conn.ltrim(self.signal_key, 0, self.max_len - 1)
+
+        # UI-friendly keys
+        self.redis_conn.lpush(self.ui_signal_key, json.dumps(payload))
+        self.redis_conn.ltrim(self.ui_signal_key, 0, self.max_len - 1)
+        self.redis_conn.set(self.ui_signal_latest_key, json.dumps(payload))  # snapshot for quick UI access
+
+        self.logger.info(f"📤 Published signal to both queues: {payload}")
 
     def publish_metrics(self, key, data, max_len=200):
         safe_data = self._sanitize(data)
+
+        # Push to original key
         self.redis_conn.lpush(key, json.dumps(safe_data))
         self.redis_conn.ltrim(key, 0, max_len - 1)
+
+        # UI-mirrored key (if metrics:xyz → ui:metrics:xyz)
+        if ":" in key:
+            prefix, rest = key.split(":", 1)
+            ui_key = f"ui:{prefix}:{rest}"
+            self.redis_conn.lpush(ui_key, json.dumps(safe_data))
+            self.redis_conn.ltrim(ui_key, 0, max_len - 1)
+
+        self.logger.debug(f"📈 Published metrics to: {key} and ui:* mirror")
 
     def push(self, payload: dict):
         self.publish(
