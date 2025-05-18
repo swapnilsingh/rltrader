@@ -10,33 +10,42 @@ live:
     db: 0
   reward_weights:
     pnl: 1.0
-    hold: 0.2                 # 🔧 lowered slightly to favor action
-    drawdown_pct: -0.3        # 🔧 base penalty, dynamically overridden if needed
-    confidence: 0.3           # 🔧 stronger boost for high-confidence signals
+    hold: 0.2
+    drawdown_pct: -0.3
+    confidence: 0.3
     stability: -0.2
-    volatility: 0.15          # 🔧 more aggressive in volatility
+    volatility: 0.15
     spread_volatility: -0.1
-    slippage: -0.2            # 🔧 slightly more conservative
-    orderbook_imbalance: 0.1  # 🔧 favors high-liquidity situations
+    slippage: -0.2
+    orderbook_imbalance: 0.1
+  reward:
+    failed_trade_penalty: -2.0
+    timeout_penalty: -0.4
+    reversal_bonus: 0.4
+    high_drawdown_penalty: -1.5
+    drawdown_threshold: 0.05
+    drawdown_limit: 0.10
+    equity_breakout_bonus: 2.0
+    cancel_penalty: -0.1
+    min_confidence: 0.25
+    min_stability: 0.25
+    cooldown: 0.0
+    profit_multiplier: 5.0         # ✅ NEW: Boost reward on profitable trades
+    reward_clip_range: [-10, 10]   # ✅ NEW: Clip reward to stable range
+    cold_start_quantity_fraction: 0.1
+
+
   experience_writer:
     model_version: v1
     max_length: 1000
     keys:
       experience: "experience_queue"
       trade_log: "trade_log"
-  reward:
-    failed_trade_penalty: -2.0
-    timeout_penalty: -0.4
-    reversal_bonus: 0.4
-    high_drawdown_penalty: -1.5      # 🔥 applied when drawdown exceeds threshold
-    drawdown_threshold: 0.05         # 5% — dynamic penalty kicks in
-    drawdown_limit: 0.10             # 10% — block risky trades
-    equity_breakout_bonus: 2.0 
 
 local:
   symbol: btcusdt
   device: cpu
-  starting_balance: 1000
+  starting_balance: 10000
   model:
     path: /mnt/models/model.pt
   redis:
@@ -53,12 +62,6 @@ local:
     spread_volatility: -0.1
     slippage: -0.2
     orderbook_imbalance: 0.1
-  experience_writer:
-    model_version: v1
-    max_length: 1000
-    keys:
-      experience: "experience_queue"
-      trade_log: "trade_log"
   reward:
     failed_trade_penalty: -2.0
     timeout_penalty: -0.4
@@ -66,4 +69,19 @@ local:
     high_drawdown_penalty: -1.5
     drawdown_threshold: 0.05
     drawdown_limit: 0.10
-    equity_breakout_bonus: 2.0 
+    equity_breakout_bonus: 2.0
+    cancel_penalty: -0.1
+    min_confidence: 0.25
+    min_stability: 0.25
+    cooldown: 0.0
+    profit_multiplier: 5.0         # ✅ NEW: Boost reward on profitable trades
+    reward_clip_range: [-10, 10]   # ✅ NEW: Clip reward to stable range
+    cold_start_quantity_fraction: 0.1
+
+
+  experience_writer:
+    model_version: v1
+    max_length: 1000
+    keys:
+      experience: "experience_queue"
+      trade_log: "trade_log"

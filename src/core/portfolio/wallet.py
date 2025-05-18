@@ -13,14 +13,16 @@ class Wallet:
         self.equity_curve = []
         self.max_equity = starting_balance
         self.min_equity = starting_balance
-        self.equity_peak = starting_balance  # ✅ NEW: Peak equity tracker
+        self.equity_peak = starting_balance
 
     def buy(self, price: float, quantity: float):
         cost = price * quantity
         if self.balance >= cost:
+            if cost < 1.0:
+                self.logger.warning(f"⚠️ Low notional BUY: ${cost:.4f}")
             self.balance -= cost
             self.inventory += quantity
-            self.entry_price = price
+            self.entry_price = price  # Model re-enters at new price
             self._log_trade("BUY", price, quantity)
         else:
             raise ValueError("❌ Insufficient balance to buy.")
@@ -28,8 +30,8 @@ class Wallet:
     def sell(self, price: float, quantity: float):
         if self.inventory >= quantity:
             proceeds = price * quantity
-            self.balance += proceeds
             pnl = (price - self.entry_price) * quantity
+            self.balance += proceeds
             self.realized_pnl += pnl
             self.inventory -= quantity
             if self.inventory == 0:
@@ -41,58 +43,49 @@ class Wallet:
     def has_position(self) -> bool:
         return self.inventory > 0
 
-    def reset(self):
-        self.__init__(self.initial_balance)
+    def get_available_equity(self) -> float:
+        return self.balance
 
-    def compute_unrealized_pnl(self, current_price: float) -> float:
-        if self.has_position():
-            return (current_price - self.entry_price) * self.inventory
-        return 0.0
+    def compute_unrealized_pnl(self, price: float) -> float:
+        return (price - self.entry_price) * self.inventory if self.has_position() else 0.0
 
-    def compute_equity(self, current_price: float) -> float:
-        equity = self.balance + self.inventory * current_price
-
-        # ✅ Update peak equity and min equity
+    def compute_equity(self, price: float) -> float:
+        equity = self.balance + self.inventory * price
         self.equity_peak = max(self.equity_peak, equity)
         self.max_equity = max(self.max_equity, equity)
         self.min_equity = min(self.min_equity, equity)
-
-        # ✅ Log equity for visualization
         self.equity_curve.append({
             "timestamp": datetime.utcnow().isoformat(),
             "equity": equity,
             "balance": self.balance,
-            "inventory": self.inventory,
+            "inventory": self.inventory
         })
-
         return equity
 
-    def get_state_dict(self, current_price: float):
-        equity = self.compute_equity(current_price)
+    def get_state_dict(self, price: float):
+        equity = self.compute_equity(price)
         drawdown_pct = (self.equity_peak - equity) / self.equity_peak if self.equity_peak > 0 else 0.0
-
         return {
             "balance": self.balance,
             "inventory": self.inventory,
             "entry_price": self.entry_price,
             "realized_pnl": self.realized_pnl,
-            "unrealized_pnl": self.compute_unrealized_pnl(current_price),
+            "unrealized_pnl": self.compute_unrealized_pnl(price),
             "has_position": int(self.has_position()),
             "equity": equity,
-            "drawdown_pct": drawdown_pct  # ✅ Include in state
+            "drawdown_pct": drawdown_pct
         }
 
-    def get_performance_metrics(self, current_price: float):
-        equity = self.compute_equity(current_price)
+    def get_performance_metrics(self, price: float):
+        equity = self.compute_equity(price)
         drawdown_pct = (self.equity_peak - equity) / self.equity_peak if self.equity_peak > 0 else 0.0
-        win_trades = [t for t in self.trade_history if t["action"] == "SELL" and t.get("pnl", 0.0) > 0]
         sell_trades = [t for t in self.trade_history if t["action"] == "SELL"]
+        win_trades = [t for t in sell_trades if t.get("pnl", 0.0) > 0]
         win_rate = len(win_trades) / len(sell_trades) if sell_trades else 0.0
         avg_pnl = sum(t.get("pnl", 0.0) for t in sell_trades) / len(sell_trades) if sell_trades else 0.0
-
         return {
             "realized_pnl": self.realized_pnl,
-            "unrealized_pnl": self.compute_unrealized_pnl(current_price),
+            "unrealized_pnl": self.compute_unrealized_pnl(price),
             "drawdown_pct": drawdown_pct,
             "win_rate": win_rate,
             "avg_trade_pnl": avg_pnl,
@@ -112,8 +105,5 @@ class Wallet:
         }
         if pnl is not None:
             trade["pnl"] = pnl
-        self.logger.info(f"Current Balance:{self.balance}")
+        self.logger.info(f"🧾 {action} | Qty: {quantity:.6f} | Price: {price:.2f} | Balance: {self.balance:.2f}")
         self.trade_history.append(trade)
-        
-    def get_available_equity(self) -> float:
-        return self.balance

@@ -45,7 +45,7 @@ class InferenceRunner:
         self.ws_client = BinanceWebSocketClient(symbol=self.symbol)
 
         self.metric_key = f"metrics:inference:{self.symbol}"
-        self.prev_wallet_snapshot = self.wallet.get_state_dict(current_price=1.0)
+        self.prev_wallet_snapshot = self.wallet.get_state_dict(1.0)
         self.prev_price = None
         self._ready_logged = False
 
@@ -92,7 +92,7 @@ class InferenceRunner:
 
         try:
             # 🧠 Build the enriched feature state
-            wallet_state = self.wallet.get_state_dict(current_price=price)
+            wallet_state = self.wallet.get_state_dict(price)
             state_vector, feature_dict = self.feature_builder.build(self.tick_buffer, wallet_state)
             
             # 🚀 Run inference and trading logic

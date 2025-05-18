@@ -52,7 +52,7 @@ class TickFeatureBuilder:
         rsi_scaled = float(latest["RSI_14"]) / 100.0
         band_position = (price - float(latest["BBL_20_2.0"])) / (float(latest["BBU_20_2.0"]) - float(latest["BBL_20_2.0"]) + 1e-6)
 
-        # 💼 Wallet features
+        # 💼 Wallet-aware features
         inventory = wallet_state.get("inventory", 0.0)
         balance = wallet_state.get("balance", 0.0)
         entry_price = wallet_state.get("entry_price", price)
@@ -62,8 +62,6 @@ class TickFeatureBuilder:
         entry_price_diff_pct = (price - entry_price) / entry_price if entry_price != 0 else 0.0
         unrealized_pnl_pct = wallet_state.get("unrealized_pnl", 0.0) / (inventory * entry_price + 1e-6)
         drawdown_pct = max(0.0, -unrealized_pnl_pct)
-        reward_profit = wallet_state.get("unrealized_pnl", 0.0) + wallet_state.get("realized_pnl", 0.0)
-        reward_risk = reward_profit / max(1.0, abs(wallet_state.get("unrealized_pnl", 0.0)))
 
         # ⏱️ Tick timing
         tick_gap = 0.0
@@ -71,13 +69,13 @@ class TickFeatureBuilder:
             tick_gap = (now - self.prev_timestamp).total_seconds()
         self.prev_timestamp = now
 
-        # 🕒 Time cyclical
+        # 🕒 Time features
         hour_sin = np.sin(2 * np.pi * now.hour / 24)
         hour_cos = np.cos(2 * np.pi * now.hour / 24)
         day_sin = np.sin(2 * np.pi * now.weekday() / 7)
         day_cos = np.cos(2 * np.pi * now.weekday() / 7)
 
-        # 📈 Advanced Features
+        # 📈 Advanced
         volatility_pct = df["price"].rolling(20).std().iloc[-1] / df["price"].rolling(20).mean().iloc[-1]
         spread_volatility = df["price"].diff().rolling(20).std().iloc[-1]
         slippage_pct = 0.0
@@ -98,8 +96,6 @@ class TickFeatureBuilder:
             "momentum_pct": momentum_pct,
             "normalized_cash": normalized_cash,
             "rsi_scaled": rsi_scaled,
-            "reward_profit": reward_profit,
-            "reward_risk": reward_risk,
             "unrealized_pnl_pct": unrealized_pnl_pct,
             "tick_arrival_gap": tick_gap,
             "tick_price_change": tick_price_change,
@@ -108,14 +104,19 @@ class TickFeatureBuilder:
             "hour_cos": hour_cos,
             "day_of_week_sin": day_sin,
             "day_of_week_cos": day_cos,
-            "regime_volatility_level": 0.0,
-
-            # 🆕 Advanced
+            "regime_volatility_level": 0.0,  # placeholder
             "volatility_pct": volatility_pct,
             "spread_volatility": spread_volatility,
             "slippage_pct": slippage_pct,
-            "orderbook_imbalance": 0.0  # Placeholder until orderbook is integrated
+            "orderbook_imbalance": 0.0,  # placeholder
         }
+
+        # 🩹 Patch: Fill in missing keys from feature_order with 0.0
+        missing_keys = [k for k in self.feature_order if k not in features]
+        if missing_keys:
+            self.logger.debug(f"🔧 Filling missing keys: {missing_keys}")
+            for key in missing_keys:
+                features[key] = 0.0
 
         vector = np.array([features[k] for k in self.feature_order], dtype=np.float32)
         self.logger.debug("✅ Feature vector constructed successfully.")
