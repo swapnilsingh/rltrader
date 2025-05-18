@@ -19,6 +19,7 @@ import torch
 
 @inject_logger()
 class UnifiedTrainer:
+    log_level="INFO"
     def __init__(self, mode: str, batches: int = 1):
         self.mode = mode
         self.batches = batches
