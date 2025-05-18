@@ -42,18 +42,22 @@ class EnhancedInferenceEngine:
 
         outputs = self._get_model_output(state)
         if outputs is None:
+            self.logger.warning("❌ No model outputs received. Skipping inference.")
             return None
 
         parsed = self._parse_outputs(outputs)
         action = self._determine_action(parsed['signal_logits'], outputs)
-        # Cold Start
+
+        # Cold Start handling
         if self.is_cold_start and not self.wallet.has_position() and self.wallet.balance > 0:
             fixed_fraction = self.config.get("cold_start_quantity_fraction", 0.1)
             available_equity = self.wallet.get_available_equity()
             quantity_fraction = (available_equity * fixed_fraction) / current_price
+
             if quantity_fraction * current_price > available_equity or quantity_fraction <= 0:
                 self.logger.warning("❌ Not enough funds for cold start BUY. Skipping.")
                 return "COLD_START_FAILED"
+
             self.logger.warning(f"🧪 Cold start — forcing BUY with qty={quantity_fraction:.6f}")
             action = "BUY"
             parsed["exec_mode"] = "MARKET"
@@ -61,14 +65,15 @@ class EnhancedInferenceEngine:
         else:
             quantity_fraction = self._determine_quantity(parsed.get('quantity'), current_price)
 
-        # Enforce Hold Time
+        # Enforce Hold Time: Minimum seconds before selling
         min_hold_secs = self.config.get("trading", {}).get("min_hold_secs", 10)
         if action == "SELL" and self.wallet.has_position():
             held_secs = (timestamp - self.last_buy_time) if self.last_buy_time else float("inf")
             if held_secs < min_hold_secs:
-                self.logger.debug(f"⏳ Min hold not met: {held_secs:.2f}s. Forcing HOLD.")
+                self.logger.debug(f"⏳ Minimum hold time not met: {held_secs:.2f}s < {min_hold_secs}s. Forcing HOLD.")
                 action = "HOLD"
 
+        # Early exit check
         if self._check_early_exit(action, parsed, current_price):
             return "EXIT_EARLY"
 
@@ -77,33 +82,49 @@ class EnhancedInferenceEngine:
 
         conf = parsed.get("confidence", 0.0)
         stab = parsed.get("signal_stability_score", 0.0)
+        
+        # Override CANCEL mode with MARKET if confidence and stability thresholds are met
         if exec_mode == "CANCEL" and action in {"BUY", "SELL"} and conf > 0.25 and stab > 0.25:
+            self.logger.debug(f"⚠️ Overriding CANCEL mode → MARKET due to high conf={conf:.2f}, stab={stab:.2f}")
             exec_mode = "MARKET"
 
         cooldown_period = self._determine_cooldown(parsed['cooldown_timer'])
+
         if action in ["BUY", "SELL"]:
             self.logger.info(f"🧠 Action={action} | Inventory={self.wallet.inventory:.6f}, Balance={self.wallet.balance:.2f} | Executing {action} with qty={quantity_fraction:.6f}, exec_mode={exec_mode}")
 
+        # Execute trade
         executed = self.execute_trade(action, quantity_fraction, exec_mode,
-                                      parsed['stop_loss_pct'], parsed['take_profit_pct'],
-                                      conf, stab, cooldown_period, current_price)
+                                    parsed['stop_loss_pct'], parsed['take_profit_pct'],
+                                    conf, stab, cooldown_period, current_price)
 
         if executed and action == "BUY":
             self.last_buy_time = timestamp
 
+        # Track buy metadata
         self._track_buy_metadata(executed, action, parsed, current_price, timestamp)
 
+        # Evaluate and log reward
         reward, breakdown, metadata = self._evaluate_and_log_reward(parsed, executed, current_price, timestamp)
+
+        # Handle forced exit due to thresholds
         if metadata.get("force_exit", False) and not metadata.get("executed", False):
             self._reset_holding_state()
             return "FORCED_EXIT"
 
+        # Skip if reward is invalid or NaN
         if reward is None or np.isnan(reward):
+            self.logger.warning("⚠️ Invalid reward value. Skipping experience logging.")
             return action
 
+        # Log experience and state
         self._log_experience_and_state(state, feature_dict, action, reward, parsed, breakdown, metadata, current_price)
+
+        # Publish metrics and signals to Redis
         self._publish_signals_and_metrics(parsed, reward, breakdown, current_price, timestamp, metadata)
+
         return action
+
 
     def check_exit_conditions(self, current_price, timestamp=None):
         if not self.wallet or not self.wallet.has_position():
