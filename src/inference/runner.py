@@ -94,7 +94,7 @@ class InferenceRunner:
             # 🧠 Build the enriched feature state
             wallet_state = self.wallet.get_state_dict(current_price=price)
             state_vector, feature_dict = self.feature_builder.build(self.tick_buffer, wallet_state)
-
+            
             # 🚀 Run inference and trading logic
             self.engine.run_inference(
                 state=state_vector,

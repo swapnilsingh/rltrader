@@ -1,5 +1,7 @@
 from datetime import datetime
+from core.decorators.decorators import inject_logger
 
+@inject_logger()
 class Wallet:
     def __init__(self, starting_balance=1000.0):
         self.initial_balance = starting_balance
@@ -110,6 +112,7 @@ class Wallet:
         }
         if pnl is not None:
             trade["pnl"] = pnl
+        self.logger.info(f"Current Balance:{self.balance}")
         self.trade_history.append(trade)
         
     def get_available_equity(self) -> float:

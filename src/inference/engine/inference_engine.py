@@ -3,8 +3,11 @@ import logging
 import numpy as np
 from datetime import datetime
 from core.utils.metrics import push_generic_metric_to_redis
+from core.decorators.decorators import inject_logger
 
+@inject_logger()
 class EnhancedInferenceEngine:
+    log_level="DEBUG"
     def __init__(self, model, config, wallet=None, exchange=None,
                  experience_writer=None, signal_publisher=None,
                  evaluator=None, prev_wallet_snapshot=None,
@@ -22,7 +25,7 @@ class EnhancedInferenceEngine:
         self.metric_key = metric_key or f"metrics:inference:{self.symbol}"
         self.env_mode = config.get('environment', {}).get('mode', 'local')
         self.trading_mode = config.get('trading', {}).get('mode', 'paper')
-        self.logger = logger or logging.getLogger(self.__class__.__name__)
+        
         self.prev_state = None
         self.prev_action = None
         self.last_trade_time = None
@@ -35,21 +38,33 @@ class EnhancedInferenceEngine:
         self.entry_price = None
 
     def run_inference(self, state, feature_dict, current_price=None, timestamp=None):
+        self.logger.debug(f"🔍 [run_inference] Starting inference at {timestamp}, price={current_price}")
+
         self.check_exit_conditions(current_price, timestamp)
+
         outputs = self._get_model_output(state)
         if outputs is None:
+            self.logger.debug("🚫 Model output is None. Skipping inference.")
             return None
 
         parsed = self._parse_outputs(outputs)
+        self.logger.debug(f"📊 Parsed model outputs: {parsed}")
+
         action = self._determine_action(parsed['signal_logits'], outputs)
+        self.logger.debug(f"🧠 Decoded action: {action}")
 
         if self._check_early_exit(action, parsed, current_price):
+            self.logger.debug("↩️ Early exit triggered. Exiting inference.")
             return "EXIT_EARLY"
 
         exec_mode_label = self._determine_exec_mode(parsed['execution_mode'])
         quantity_fraction = self._determine_quantity(parsed['quantity'], current_price)
-        cooldown_period = self._determine_cooldown(parsed['cooldown_timer'])
+        self.logger.debug(f"📦 Quantity fraction decoded: {quantity_fraction} using logits {parsed.get('quantity')}")
 
+        cooldown_period = self._determine_cooldown(parsed['cooldown_timer'])
+        self.logger.debug(f"⏲️ Cooldown period: {cooldown_period}")
+
+        self.logger.debug(f"🚀 Executing trade → Action={action}, Qty={quantity_fraction}, Mode={exec_mode_label}")
         executed = self.execute_trade(
             action=action,
             quantity_fraction=quantity_fraction,
@@ -61,15 +76,21 @@ class EnhancedInferenceEngine:
             cooldown_period=cooldown_period,
             current_price=current_price
         )
+        self.logger.debug(f"✅ Trade execution result: executed={executed}")
 
         self._track_buy_metadata(executed, action, parsed, current_price, timestamp)
 
+        self.logger.debug("🎯 Evaluating trade reward...")
         reward, breakdown, metadata = self._evaluate_and_log_reward(parsed, executed, current_price, timestamp)
+        self.logger.debug(f"🎁 Reward: {reward}, Breakdown: {breakdown}, Meta: {metadata}")
+
         if reward is None or np.isnan(reward):
             self.logger.warning("⚠️ Skipping experience due to invalid reward.")
             return action
 
         self._log_experience_and_state(state, feature_dict, action, reward, parsed, breakdown, metadata)
+
+        self.logger.debug(f"📡 Pushing metrics and signals to Redis for symbol={self.symbol}")
         self._publish_signals_and_metrics(parsed, reward, breakdown, current_price, timestamp)
 
         return action

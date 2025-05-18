@@ -25,7 +25,7 @@ class EvaluatorAgent:
         )
 
         if not executed and self.logger:
-            self.logger.info("⚠️ Trade was rejected. Evaluating with penalty.")
+            self.logger.debug("⚠️ Trade was rejected. Evaluating with penalty.")
 
         # Fill missing model outputs with safe defaults
         enriched_outputs = {

@@ -49,7 +49,7 @@ class SignalPublisher:
         self.redis_conn.ltrim(self.ui_signal_key, 0, self.max_len - 1)
         self.redis_conn.set(self.ui_signal_latest_key, json.dumps(payload))  # snapshot for quick UI access
 
-        self.logger.info(f"📤 Published signal to both queues: {payload}")
+        self.logger.debug(f"📤 Published signal to both queues: {payload}")
 
     def publish_metrics(self, key, data, max_len=200):
         safe_data = self._sanitize(data)

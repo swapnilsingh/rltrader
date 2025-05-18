@@ -1,12 +1,10 @@
-# core/decorators/decorators.py
-
 from functools import wraps
 from loguru import logger as loguru_logger
 import os
 import sys
 from core.utils.config_loader import load_config
 
-_loguru_sink_initialized = False
+_sink_map = {}
 
 def inject_logger(name_attr="logger_name", level_attr="log_level"):
     def decorator(cls):
@@ -14,32 +12,37 @@ def inject_logger(name_attr="logger_name", level_attr="log_level"):
 
         @wraps(orig_init)
         def wrapped(self, *args, **kwargs):
-            global _loguru_sink_initialized
-
-            # Use class name as default logger name
             logger_name = getattr(self, name_attr, cls.__name__)
             env_key = f"LOG_LEVEL_{logger_name.upper()}"
-            log_level = os.getenv(env_key, getattr(cls, level_attr, os.getenv("APP_LOG_LEVEL", "INFO"))).upper()
+            default_level = os.getenv("APP_LOG_LEVEL", "WARNING")
+            log_level = os.getenv(env_key, getattr(cls, level_attr, default_level)).upper()
 
-            # Setup Loguru sink once with global config
-            if not _loguru_sink_initialized:
-                loguru_logger.remove()  # remove default sink
-                loguru_logger.add(sys.stderr, level=os.getenv("APP_LOG_LEVEL", "INFO").upper())
-                _loguru_sink_initialized = True
+            # 🔁 Remove ALL existing sinks once
+            if not _sink_map:
+                loguru_logger.remove()
 
-            # Bind logger with class-specific source name
+            # 🔒 Add one sink per class
+            if logger_name not in _sink_map:
+                loguru_logger.add(
+                    sys.stderr,
+                    level=log_level,
+                    filter=lambda record: record["extra"].get("source") == logger_name,
+                    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | " \
+                            "<level>{level: <8}</level> | " \
+                            "<cyan>{extra[source]}</cyan> | " \
+                            "<blue>{function}</blue>:<yellow>{line}</yellow> - " \
+                            "<level>{message}</level>"
+
+                )
+                _sink_map[logger_name] = True
+
             bound_logger = loguru_logger.bind(source=logger_name)
-            bound_logger.level(log_level)  # tag level for introspection (optional)
-
             self.logger = bound_logger
             orig_init(self, *args, **kwargs)
 
         cls.__init__ = wrapped
         return cls
     return decorator
-
-
-
 
 
 def inject_config(config_path=None):
