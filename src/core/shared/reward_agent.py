@@ -1,3 +1,5 @@
+# File: core/reward/reward_agent.py
+
 import numpy as np
 from core.utils.type_safe import safe_float
 
@@ -6,83 +8,104 @@ class RewardAgent:
         self.config = config or {}
         self.weights = self.config.get("reward_weights", {})
 
-        # Static penalties/bonuses
         reward_cfg = self.config.get("reward", {})
         self.default_penalty = reward_cfg.get("failed_trade_penalty", -1.0)
         self.timeout_penalty = reward_cfg.get("timeout_penalty", -0.5)
         self.reversal_bonus = reward_cfg.get("reversal_bonus", 0.3)
         self.cancel_penalty = reward_cfg.get("cancel_penalty", -0.1)
 
-        # Drawdown control
         self.dynamic_drawdown_enabled = True
         self.drawdown_threshold = reward_cfg.get("drawdown_threshold", 0.05)
         self.high_drawdown_penalty = reward_cfg.get("high_drawdown_penalty", -1.5)
         self.drawdown_execution_limit = reward_cfg.get("drawdown_limit", 0.10)
         self.low_drawdown_penalty = self.weights.get("drawdown_pct", -0.3)
 
-        # Equity bonus
         self.equity_breakout_bonus = reward_cfg.get("equity_breakout_bonus", 2.0)
-
-        # Early exit penalty
         self.min_hold_secs = reward_cfg.get("min_hold_secs", 10)
         self.early_exit_penalty = reward_cfg.get("early_exit_penalty", -0.5)
 
+    def update_weights(self, new_weights: dict):
+        if isinstance(new_weights, dict):
+            # Clamp all weights between -1.0 and 2.0
+            for k, v in new_weights.items():
+                if isinstance(v, (int, float)):
+                    self.weights[k] = float(np.clip(v, -1.0, 2.0))
+
     def compute_reward(self, trade_outcome, model_output):
+        if hasattr(trade_outcome, "was_executed") and not getattr(trade_outcome, "was_executed"):
+            return self._reward_failed_execution(model_output)
+
         action = getattr(trade_outcome, "action", "HOLD")
         drawdown_pct = safe_float(getattr(trade_outcome, "drawdown_pct", 0.0))
-
         if self._is_execution_blocked(action, drawdown_pct):
             return self._build_execution_blocked_response()
 
-        components = self._extract_components(trade_outcome, model_output)
-        drawdown_penalty, force_exit = self._compute_drawdown_penalty(
-            components["equity"], components["initial_balance"]
-        )
+        c = self._extract_components(trade_outcome, model_output)
+        drawdown_penalty, force_exit = self._compute_drawdown_penalty(c["equity"], c["initial_balance"])
         exec_mode_penalty = self._compute_cancel_penalty(model_output, action)
 
-        # ✅ Profit boost logic
-        pnl = components["pnl"]
+        pnl = c["pnl"]
         profit_multiplier = self.config.get("reward", {}).get("profit_multiplier", 5.0)
         profit_boost = pnl * profit_multiplier if action == "SELL" and pnl > 0 else 0.0
 
-        # ✅ Early exit penalty
-        early_exit_penalty = 0.0
-        if model_output.get("exit_reason") == "REVERSE_EXIT":
-            early_exit_penalty = -1.0  # Tunable
+        early_exit_penalty = -1.0 if model_output.get("exit_reason") == "REVERSE_EXIT" else 0.0
 
         reward = (
             self.weights.get("pnl", 1.0) * pnl +
-            self.weights.get("hold", 0.5) * components["hold_reward"] +
-            drawdown_penalty * components["drawdown_pct"] +
-            self.weights.get("confidence", 0.2) * components["confidence"] +
-            self.weights.get("stability", -0.2) * components["stability"] +
-            self.weights.get("volatility", 0.1) * components["volatility_pct"] +
-            self.weights.get("spread_volatility", -0.1) * components["spread_volatility"] +
-            self.weights.get("slippage", -0.15) * components["slippage_pct"] +
-            self.weights.get("orderbook_imbalance", 0.05) * components["orderbook_imbalance"] +
+            self.weights.get("hold", 0.5) * c["hold_reward"] +
+            drawdown_penalty * c["drawdown_pct"] +
+            self.weights.get("confidence", 0.2) * c["confidence"] +
+            self.weights.get("stability", -0.2) * c["stability"] +
+            self.weights.get("volatility", 0.1) * c["volatility_pct"] +
+            self.weights.get("spread_volatility", -0.1) * c["spread_volatility"] +
+            self.weights.get("slippage", -0.15) * c["slippage_pct"] +
+            self.weights.get("orderbook_imbalance", 0.05) * c["orderbook_imbalance"] +
             exec_mode_penalty +
             early_exit_penalty +
             profit_boost
         )
 
-        reward += self._compute_equity_bonus(components["equity_peak"], components["prev_equity_peak"])
-        reward += self._apply_exit_adjustments(components["exit_reason"])
+        reward += self._compute_equity_bonus(c["equity_peak"], c["prev_equity_peak"])
+        reward += self._apply_exit_adjustments(c["exit_reason"])
+        reward = np.clip(reward, -10, 10)
 
-        # ✅ Clip final reward
-        clip_range = self.config.get("reward", {}).get("reward_clip_range", [-10, 10])
-        reward = np.clip(reward, clip_range[0], clip_range[1])
-
-        breakdown = self._build_breakdown(components, drawdown_penalty, exec_mode_penalty, reward)
-        metadata = self._build_metadata(model_output, components["exit_reason"], force_exit)
-
+        breakdown = self._build_breakdown(c, drawdown_penalty, exec_mode_penalty, reward)
+        metadata = self._build_metadata(model_output, c["exit_reason"], force_exit)
         return reward, breakdown, metadata
 
+    def _reward_failed_execution(self, model_output):
+        penalty = self.default_penalty
+
+        # ⛔ Quantity-aware penalty (discourage large quantity if failed)
+        quantity = safe_float(model_output.get("quantity", 1.0))
+        quantity_penalty = min(1.0, quantity)  # penalize larger orders
+        penalty *= (1.0 + quantity_penalty)    # scale penalty
+
+        breakdown = {
+            "pnl_component": 0.0,
+            "hold_component": 0.0,
+            "drawdown_component": 0.0,
+            "drawdown_penalty_used": 0.0,
+            "confidence_component": model_output.get("confidence", 0.0),
+            "stability_component": model_output.get("signal_stability_score", 0.0),
+            "volatility_component": model_output.get("volatility_pct", 0.0),
+            "spread_volatility_component": model_output.get("spread_volatility", 0.0),
+            "slippage_component": model_output.get("slippage_pct", 0.0),
+            "orderbook_imbalance_component": model_output.get("orderbook_imbalance", 0.0),
+            "exec_mode_penalty": 0.0,
+            "equity_breakout_bonus": 0.0,
+            "exit_reason": "FAILED_EXECUTION",
+            "final_reward": penalty
+        }
+        metadata = {
+            "executed": False,
+            "exit_reason": "FAILED_EXECUTION",
+            "force_exit": True
+        }
+        return penalty, breakdown, metadata
+
     def _is_execution_blocked(self, action, drawdown_pct):
-        return (
-            self.dynamic_drawdown_enabled and
-            drawdown_pct >= self.drawdown_execution_limit and
-            action != "HOLD"
-        )
+        return self.dynamic_drawdown_enabled and drawdown_pct >= self.drawdown_execution_limit and action != "HOLD"
 
     def _build_execution_blocked_response(self):
         return (
@@ -94,16 +117,6 @@ class RewardAgent:
                 "force_exit": True
             }
         )
-
-    def _apply_early_exit_penalty(self, trade_outcome):
-        if getattr(trade_outcome, "action", "HOLD") != "SELL":
-            return 0.0
-        held_secs = safe_float(getattr(trade_outcome, "holding_time", 0.0))
-        if held_secs < self.min_hold_secs:
-            if hasattr(self, "logger"):
-                self.logger.debug(f"⚠️ Early exit penalty applied: held={held_secs:.2f}s < {self.min_hold_secs}s")
-            return self.early_exit_penalty
-        return 0.0
 
     def _extract_components(self, trade_outcome, model_output):
         return {
@@ -128,7 +141,6 @@ class RewardAgent:
         pct_remaining = equity / initial if initial > 0 else 1.0
         penalty = 0.0
         override_required = False
-
         if pct_remaining <= 0.10:
             penalty = -10.0
             override_required = True
@@ -144,20 +156,15 @@ class RewardAgent:
             penalty = -2.0
         elif pct_remaining <= 0.95:
             penalty = -1.0
-
         return penalty, override_required
 
     def _compute_cancel_penalty(self, model_output, action):
         exec_mode = model_output.get("exec_mode", "CANCEL")
         if exec_mode != "CANCEL" or action == "HOLD":
             return 0.0
-
         confidence = safe_float(model_output.get("confidence", 0.0))
         volatility = safe_float(model_output.get("volatility_pct", 0.0))
-        confidence_factor = confidence
-        volatility_factor = max(1.0 - volatility, 0.0)
-
-        return self.cancel_penalty * (1.0 + confidence_factor + volatility_factor)
+        return self.cancel_penalty * (1.0 + confidence + max(1.0 - volatility, 0.0))
 
     def _compute_equity_bonus(self, equity_peak, prev_equity_peak):
         return self.equity_breakout_bonus if equity_peak > prev_equity_peak else 0.0

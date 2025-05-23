@@ -1,6 +1,10 @@
+# File: src/inference/runner.py
+
 import sys
 import asyncio
 import redis
+import argparse
+import threading
 from core.decorators.decorators import inject_logger
 from core.utils.config_loader import load_config
 from core.portfolio.wallet import Wallet
@@ -11,11 +15,10 @@ from inference.publisher.signal_publisher import SignalPublisher
 from inference.publisher.experience_writer import ExperienceWriter
 from inference.connectors.websocket_connector import BinanceWebSocketClient
 from inference.engine.inference_engine import EnhancedInferenceEngine
-
-# 🧠 NEW: Import evaluator + reward agent
 from core.shared.reward_agent import RewardAgent
 from core.evaluator.evaluator_agent import EvaluatorAgent
-
+from core.reward.llm_reward_controller import LLMRewardController
+from core.utils.state_utils import sanitize_state
 
 @inject_logger()
 class InferenceRunner:
@@ -35,46 +38,52 @@ class InferenceRunner:
             decode_responses=True
         )
 
-        # Components
-        self.experience_writer = ExperienceWriter(self.redis_conn, self.symbol, self.config.get("experience_writer", {}))
-        self.agent = InferenceAgent(self.model_path, self.device)
-        self.tick_buffer = RollingTickBuffer(maxlen=300)
-        self.feature_builder = TickFeatureBuilder(feature_order=self.agent.feature_order)
+        # Core components
         self.wallet = Wallet(self.config.get("starting_balance", 1000))
+        self.experience_writer = ExperienceWriter(self.redis_conn, self.symbol, self.config.get("experience_writer", {}))
         self.signal_publisher = SignalPublisher(self.redis_conn, symbol=self.symbol)
         self.ws_client = BinanceWebSocketClient(symbol=self.symbol)
 
-        self.metric_key = f"metrics:inference:{self.symbol}"
-        self.prev_wallet_snapshot = self.wallet.get_state_dict(1.0)
-        self.prev_price = None
-        self._ready_logged = False
+        # Model + feature pipeline
+        self.agent = InferenceAgent(self.model_path, self.device)
+        self.tick_buffer = RollingTickBuffer(maxlen=300)
+        self.feature_builder = TickFeatureBuilder(feature_order=self.agent.feature_order)
 
-        # ✅ NEW: Reward + Evaluation Pipeline
-        reward_agent = RewardAgent(config=self.config.get("reward", {}))
-        self.evaluator = EvaluatorAgent(reward_agent=reward_agent, logger=self.logger)
+        # Reward and evaluation
+        self.reward_agent = RewardAgent(config=self.config.get("reward", {}))
+        self.evaluator = EvaluatorAgent(reward_agent=self.reward_agent)
 
-        # 🧠 Engine with full modern pipeline
+        # Refactored Inference Engine
         self.engine = EnhancedInferenceEngine(
-            model=self.agent,
+            model_agent=self.agent,
             config=self.config,
             wallet=self.wallet,
+            evaluator=self.evaluator,
             experience_writer=self.experience_writer,
             signal_publisher=self.signal_publisher,
-            evaluator=self.evaluator,
-            prev_wallet_snapshot=self.prev_wallet_snapshot,
-            prev_price=self.prev_price,
-            symbol=self.symbol,
-            metric_key=self.metric_key,
-            logger=self.logger
+            redis_client=self.redis_conn,
+            symbol=self.symbol
         )
 
+        # 🔁 LLM Reward Controller Background Thread
+        interval_secs = self.config.get("llm_interval_secs", 120)
+        self.llm_controller = LLMRewardController(
+            reward_agent=self.reward_agent,
+            redis_conn=self.redis_conn,
+            symbol=self.symbol,
+            interval_secs=interval_secs
+        )
+        threading.Thread(target=self.llm_controller.run_loop, daemon=True).start()
+        self.logger.info("🧠 LLMRewardController started in background")
+
+        self._ready_logged = False
         self.logger.info(f"✅ InferenceRunner initialized for {self.symbol} on {self.device}")
 
     async def handle_tick(self, tick_msg):
         self.logger.debug(f"📥 Received tick: {tick_msg}")
         try:
             price = float(tick_msg["p"])
-            ts = int(tick_msg["T"])
+            timestamp = int(tick_msg["T"])
         except Exception as e:
             self.logger.warning(f"❌ Tick parsing failed: {e}")
             return
@@ -87,27 +96,25 @@ class InferenceRunner:
             return
 
         if not self._ready_logged:
-            self.logger.info("📈 Buffer is now ready. Inference will begin.")
+            self.logger.info("📈 Buffer ready. Starting inference.")
             self._ready_logged = True
 
         try:
-            # 🧠 Build the enriched feature state
             wallet_state = self.wallet.get_state_dict(price)
-            state_vector, feature_dict = self.feature_builder.build(self.tick_buffer, wallet_state)
-            
-            # 🚀 Run inference and trading logic
-            self.engine.run_inference(
-                state=state_vector,
-                feature_dict=feature_dict,
-                current_price=price,
-                timestamp=ts
-            )
+            input_vector, feature_dict = self.feature_builder.build(self.tick_buffer, wallet_state)
 
-            # 🔁 Update snapshot references for next tick
-            self.prev_wallet_snapshot = self.wallet.get_state_dict(price)
-            self.prev_price = price
-            self.engine.prev_wallet_snapshot = self.prev_wallet_snapshot
-            self.engine.prev_price = self.prev_price
+            state = {
+                **feature_dict,
+                **wallet_state,
+                "current_price": price,
+                "timestamp": timestamp
+            }
+
+            if not sanitize_state(state):
+                self.logger.warning("⚠️ Invalid state (NaN detected), skipping.")
+                return
+
+            self.engine.run(state, current_price=price, timestamp=timestamp)
 
         except Exception as e:
             self.logger.exception(f"❌ Tick processing failed: {e}")
@@ -118,8 +125,6 @@ class InferenceRunner:
 
 
 if __name__ == "__main__":
-    import argparse
-
     parser = argparse.ArgumentParser(description="Run InferenceRunner")
     parser.add_argument("--env", type=str, default="local", help="Environment name (e.g., local, prod)")
     args = parser.parse_args()

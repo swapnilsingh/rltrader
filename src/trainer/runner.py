@@ -19,7 +19,8 @@ import torch
 
 @inject_logger()
 class UnifiedTrainer:
-    log_level="INFO"
+    log_level = "INFO"
+
     def __init__(self, mode: str, batches: int = 1):
         self.mode = mode
         self.batches = batches
@@ -76,6 +77,27 @@ class UnifiedTrainer:
         model_config = self.config.get("model_config", {})
         self.trainer.model_manager.save_model(model, metadata=model_config)
 
+    def _convert_to_tuple(self, experience: dict):
+        try:
+            state = experience.get("state", {})
+            action = experience.get("action")
+            reward = experience.get("reward")
+            next_state = experience.get("next_state") or experience.get("metadata", {}).get("next_state", {})
+
+            if not isinstance(state, dict) or not isinstance(next_state, dict):
+                self.logger.debug(f"⚠️ Invalid state/next_state type: {type(state)}, {type(next_state)}")
+                return None
+
+            if not isinstance(reward, (int, float)) or action not in self.trainer.action_index_map:
+                self.logger.debug(f"⚠️ Invalid action/reward: {action} | {reward}")
+                return None
+
+            q_class = self.trainer._derive_quantity_class(state, action)
+            return (state, action, reward, next_state, q_class)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Malformed experience tuple: {e}")
+            return None
+
     def run(self):
         return self.run_dry() if self.mode == "dry" else self.run_live()
 
@@ -99,32 +121,19 @@ class UnifiedTrainer:
             try:
                 raw = self.redis.lpop(self.experience_key)
                 if raw:
-                    try:
-                        experience = json.loads(raw)
-                        state = experience.get("state")
-                        action = experience.get("action")
-                        reward = experience.get("reward")
-                        next_state = experience.get("next_state") or experience.get("metadata", {}).get("next_state", {})
-
-                        if not isinstance(state, dict) or action not in self.trainer.action_index_map or not isinstance(reward, (int, float)):
-                            self.logger.debug(f"❌ Invalid experience skipped: {experience}")
-                            continue
-
-                        self.trainer.buffer.add((state, action, reward, next_state))
-
+                    experience = json.loads(raw)
+                    tupled = self._convert_to_tuple(experience)
+                    if tupled:
+                        self.trainer.buffer.add(tupled)
                         self.bootstrapped = False
-                    except Exception as e:
-                        self.logger.warning(f"⚠️ Malformed experience: {e}")
-
+                    else:
+                        self.logger.debug("⚠️ Skipped experience due to invalid format.")
                 now = time.time()
                 if now - self.last_train_time >= self.TRAIN_INTERVAL:
                     self._train_step(now)
-
                 if now - self.last_save_time >= self.SAVE_INTERVAL:
                     self._save_step(now)
-
                 time.sleep(0.5)
-
             except KeyboardInterrupt:
                 self.logger.info("🛑 Graceful shutdown.")
                 break

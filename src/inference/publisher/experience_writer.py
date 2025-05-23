@@ -4,6 +4,7 @@ from core.decorators.decorators import inject_logger
 
 @inject_logger()
 class ExperienceWriter:
+    log_level= "INFO"
     def __init__(self, redis_conn, symbol="btcusdt", config=None):
         self.redis_conn = redis_conn
         self.symbol = symbol.lower()

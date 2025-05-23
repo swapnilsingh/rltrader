@@ -33,7 +33,7 @@ live:
     profit_multiplier: 5.0         # ✅ NEW: Boost reward on profitable trades
     reward_clip_range: [-10, 10]   # ✅ NEW: Clip reward to stable range
     cold_start_quantity_fraction: 0.1
-
+  llm_interval_secs: 120
 
   experience_writer:
     model_version: v1
@@ -85,3 +85,4 @@ local:
     keys:
       experience: "experience_queue"
       trade_log: "trade_log"
+  llm_interval_secs: 120
